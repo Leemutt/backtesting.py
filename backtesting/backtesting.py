@@ -69,7 +69,7 @@ class Strategy(metaclass=ABCMeta):
         for k, v in params.items():
             if not hasattr(self, k):
                 raise AttributeError(
-                    f"Strategy '{self.__class__.__name__}' is missing parameter '{k}'."
+                    f"Strategy '{self.__class__.__name__}' is missing parametr '{k}'."
                     "Strategy class should define parameters as class variables before they "
                     "can be optimized or run with.")
             setattr(self, k, v)
