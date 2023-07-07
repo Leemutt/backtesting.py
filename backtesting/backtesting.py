@@ -69,7 +69,7 @@ class Strategy(metaclass=ABCMeta):
         for k, v in params.items():
             if not hasattr(self, k):
                 raise AttributeError(
-                    f"Strategy '{self.__class__.__name__}' is missing parametr '{k}'."
+                    f"Strategy '{self.__class__.__name__}' is missing parameter '{k}'."
                     "Strategy class should define parameters as class variables before they "
                     "can be optimized or run with.")
             setattr(self, k, v)
@@ -1372,7 +1372,7 @@ class Backtest:
                            if constraint(AttrDict(p)))
             return size
 
-        def _optimize_grid() -> Union[pd.Series, Tuple[pd.Series, pd.Series]]:
+        def _optimize_grid() -> Union[pd.Series, Tuple[pd.Series, pd.Series], list]:
             rand = default_rng(random_state).random
             grid_frac = (1 if max_tries is None else
                          max_tries if 0 < max_tries <= 1 else
@@ -1396,6 +1396,8 @@ class Backtest:
                                     [p.values() for p in param_combos],
                                     names=next(iter(param_combos)).keys()))
 
+            esp_heatmap = []
+
             def _batch(seq):
                 n = np.clip(int(len(seq) // (os.cpu_count() or 1)), 1, 300)
                 for i in range(0, len(seq), n):
@@ -1418,17 +1420,40 @@ class Backtest:
                                    for i in range(len(param_batches))]
                         for future in _tqdm(as_completed(futures), total=len(futures),
                                             desc='Backtest.optimize'):
-                            batch_index, values = future.result()
+                            batch_index, values, esp_results = future.result()
                             for value, params in zip(values, param_batches[batch_index]):
                                 heatmap[tuple(params.values())] = value
+                            
+                            for result in esp_results:
+                                result_for_df = {}
+                                result_for_df['params'] = result[0]
+                                result_for_df['SQN']                    = result[1]
+                                result_for_df['# Trades']               = result[2]
+                                result_for_df['Avg. Trade Duration']    = result[3]
+                                result_for_df['Win Rate [%]']           = result[4]
+                                result_for_df['Max. Drawdown Duration'] = result[5]
+
+                                esp_heatmap.append(result_for_df)
                 else:
                     if os.name == 'posix':
                         warnings.warn("For multiprocessing support in `Backtest.optimize()` "
                                       "set multiprocessing start method to 'fork'.")
                     for batch_index in _tqdm(range(len(param_batches))):
-                        _, values = Backtest._mp_task(backtest_uuid, batch_index)
+                        _, values, esp_results = Backtest._mp_task(backtest_uuid, batch_index)
                         for value, params in zip(values, param_batches[batch_index]):
                             heatmap[tuple(params.values())] = value
+                        
+                        for result in esp_results:
+                            result_for_df = {}
+                            result_for_df['params'] = result[0]
+                            result_for_df['SQN']                    = result[1]
+                            result_for_df['# Trades']               = result[2]
+                            result_for_df['Avg. Trade Duration']    = result[3]
+                            result_for_df['Win Rate [%]']           = result[4]
+                            result_for_df['Max. Drawdown Duration'] = result[5]
+
+                            esp_heatmap.append(result_for_df)
+
             finally:
                 del Backtest._mp_backtests[backtest_uuid]
 
@@ -1442,7 +1467,7 @@ class Backtest:
                 stats = self.run(**dict(zip(heatmap.index.names, best_params)))
 
             if return_heatmap:
-                return stats, heatmap
+                return stats, heatmap, esp_heatmap
             return stats
 
         def _optimize_skopt() -> Union[pd.Series,
@@ -1545,8 +1570,26 @@ class Backtest:
 
     @staticmethod
     def _mp_task(backtest_uuid, batch_index):
+
+
         bt, param_batches, maximize_func = Backtest._mp_backtests[backtest_uuid]
-        return batch_index, [maximize_func(stats) if stats['# Trades'] else np.nan
+
+        esp_results = []
+
+        for params in param_batches[batch_index]:
+            
+            result = bt.run(**params)
+            esp_results.append( (   params,
+                                    result['SQN'],
+                                    result['# Trades'],
+                                    result['Avg. Trade Duration'],
+                                    result['Win Rate [%]'],
+                                    result['Max. Drawdown Duration'],
+                                 ))
+
+
+        return batch_index, [result['SQN']], esp_results
+        return batch_index, [(maximize_func(stats) if stats['# Trades'] else np.nan , stats['# Trades']  )
                              for stats in (bt.run(**params)
                                            for params in param_batches[batch_index])]
 
