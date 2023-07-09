@@ -46,11 +46,12 @@ if __name__ == '__main__':
             'test': [
                 'seaborn',
                 'matplotlib',
-                'scikit-learn <= 1.1.3',  # Pinned due to boken scikit-optimize
+                # 'scikit-learn <= 1.1.3',  # Pinned due to boken scikit-optimize
+                'scikit-learn',  # Leemutt fork: not pinned anymore, cause Esphera does not use skopt anyways (only grid)
                 'scikit-optimize',
             ],
             'dev': [
-                'ruff==0.0.160',
+                'ruff==0.0.160', # Leemutt fork: not sure why this version
                 'coverage',
                 'mypy',
             ],

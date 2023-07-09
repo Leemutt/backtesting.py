@@ -1030,7 +1030,8 @@ class Backtest:
                  margin: float = 1.,
                  trade_on_close=False,
                  hedging=False,
-                 exclusive_orders=False
+                 exclusive_orders=False,
+                 close_open_trades=True
                  ):
         """
         Initialize a backtest. Requires data and a strategy to test.
@@ -1132,6 +1133,7 @@ class Backtest:
             exclusive_orders=exclusive_orders, index=data.index,
         )
         self._strategy = strategy
+        self._close_open_trades = close_open_trades
         self._results: Optional[pd.Series] = None
 
     def run(self, **kwargs) -> pd.Series:
@@ -1219,8 +1221,9 @@ class Backtest:
                 strategy.next()
             else:
                 # Close any remaining open trades so they produce some stats
-                for trade in broker.trades:
-                    trade.close()
+                if self._close_open_trades:
+                    for trade in broker.trades:
+                        trade.close()
 
                 # Re-run broker one last time to handle orders placed in the last strategy
                 # iteration. Use the same OHLC values as in the last broker iteration.
