@@ -1536,7 +1536,7 @@ class Backtest:
                     func=objective_function,
                     dimensions=dimensions,
                     n_calls=max_tries,
-                    base_estimator=ExtraTreesRegressor(n_estimators=20, min_samples_leaf=2),
+                    base_estimator=ExtraTreesRegressor(n_estimators=20,min_samples_leaf=2 ),
                     acq_func='LCB',
                     kappa=3,
                     n_initial_points=min(max_tries, 20 + 3 * len(kwargs)),
