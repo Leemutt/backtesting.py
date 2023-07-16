@@ -1515,6 +1515,8 @@ class Backtest:
             INVALID = 1e300
             progress = iter(_tqdm(repeat(None), total=max_tries, desc='Backtest.optimize'))
 
+            heatmap_esp = []
+
             @use_named_args(dimensions=dimensions)
             def objective_function(**params):
                 next(progress)
@@ -1524,6 +1526,18 @@ class Backtest:
                     return INVALID
                 res = memoized_run(tuple(params.items()))
                 value = -maximize(res)
+
+                esp_heatmap['params'] = params
+                esp_heatmap['SQN'] = res['SQN']
+                esp_heatmap['# Trades'] = res['# Trades']
+                esp_heatmap['Avg. Trade Duration'] = res['Avg. Trade Duration']
+                esp_heatmap['Win Rate [%]'] = res['Win Rate [%]']
+                esp_heatmap['Max. Drawdown Duration'] = res['Max. Drawdown Duration']
+                esp_heatmap['skopt_func_result'] = value 
+                esp_heatmap['skopt_func_name'] = '' # keine Ahnung
+
+                heatmap_esp.append(esp_heatmap)
+
                 if np.isnan(value):
                     return INVALID
                 return value
@@ -1553,6 +1567,20 @@ class Backtest:
                 heatmap.index.names = kwargs.keys()
                 heatmap = heatmap[heatmap != -INVALID]
                 heatmap.sort_index(inplace=True)
+
+                esp_heatmap = {}
+
+                esp_heatmap['params'] = ''
+                esp_heatmap['SQN'] = stats['SQN']
+                esp_heatmap['# Trades'] = stats['# Trades']
+                esp_heatmap['Avg. Trade Duration'] = stats['Avg. Trade Duration']
+                esp_heatmap['Win Rate [%]'] = stats['Win Rate [%]']
+                esp_heatmap['Max. Drawdown Duration'] = stats['Max. Drawdown Duration']
+                esp_heatmap['skopt_func_result'] = -res.func_vals # keine Ahnung
+                esp_heatmap['skopt_func_name'] = maximize_key
+
+
+
                 output.append(heatmap)
 
             if return_optimization:
