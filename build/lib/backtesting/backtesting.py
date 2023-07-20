@@ -1435,18 +1435,6 @@ class Backtest:
                                 result_for_df['Avg. Trade Duration']    = result[3]
                                 result_for_df['Win Rate [%]']           = result[4]
                                 result_for_df['Max. Drawdown Duration'] = result[5]
-                                result_for_df['Start']                  = result[6]
-                                result_for_df['End']                    = result[7]
-                                result_for_df['skopt_func_result']      = 0
-                                result_for_df['skopt_func_name']        = ''
-
-                                duration = result_for_df['End'] - result_for_df['Start']
-                                try:
-                                    max_drawdown_pct = result_for_df['Max. Drawdown Duration'] * 100 / duration
-                                except:
-                                    max_drawdown_pct = 0
-
-                                result_for_df['Max. Drawdown Duration %'] = max_drawdown_pct
 
                                 esp_heatmap.append(result_for_df)
                 else:
@@ -1466,17 +1454,6 @@ class Backtest:
                             result_for_df['Avg. Trade Duration']    = result[3]
                             result_for_df['Win Rate [%]']           = result[4]
                             result_for_df['Max. Drawdown Duration'] = result[5]
-                            result_for_df['Start']                  = result[6]
-                            result_for_df['End']                    = result[7]
-                            result_for_df['skopt_func_result']      = 0
-                            result_for_df['skopt_func_name']        = ''
-                            duration = result_for_df['End'] - result_for_df['Start']
-                            try:
-                                max_drawdown_pct = result_for_df['Max. Drawdown Duration'] * 100 / duration
-                            except:
-                                max_drawdown_pct = 0
-
-                            result_for_df['Max. Drawdown Duration %'] = max_drawdown_pct
 
                             esp_heatmap.append(result_for_df)
 
@@ -1540,7 +1517,6 @@ class Backtest:
 
             heatmap_esp = []
 
-            esp_heatmap = {}
             @use_named_args(dimensions=dimensions)
             def objective_function(**params):
                 next(progress)
@@ -1551,26 +1527,14 @@ class Backtest:
                 res = memoized_run(tuple(params.items()))
                 value = -maximize(res)
 
-                esp_heatmap = {}
                 esp_heatmap['params'] = params
                 esp_heatmap['SQN'] = res['SQN']
-                esp_heatmap['Start'] = res['Start']
-                esp_heatmap['End'] = res['End']
-                esp_heatmap['Max. Drawdown [%]'] = res['Max. Drawdown [%]']
                 esp_heatmap['# Trades'] = res['# Trades']
                 esp_heatmap['Avg. Trade Duration'] = res['Avg. Trade Duration']
                 esp_heatmap['Win Rate [%]'] = res['Win Rate [%]']
                 esp_heatmap['Max. Drawdown Duration'] = res['Max. Drawdown Duration']
                 esp_heatmap['skopt_func_result'] = value 
                 esp_heatmap['skopt_func_name'] = '' # keine Ahnung
-
-                try:
-                    max_drawdown_pct = res['Max. Drawdown Duration'] * 100 / res['Duration']
-                except:
-                    max_drawdown_pct = 0
-
-                esp_heatmap['Max. Drawdown Duration %'] = max_drawdown_pct
-
 
                 heatmap_esp.append(esp_heatmap)
 
@@ -1604,8 +1568,20 @@ class Backtest:
                 heatmap = heatmap[heatmap != -INVALID]
                 heatmap.sort_index(inplace=True)
 
+                esp_heatmap = {}
+
+                esp_heatmap['params'] = ''
+                esp_heatmap['SQN'] = stats['SQN']
+                esp_heatmap['# Trades'] = stats['# Trades']
+                esp_heatmap['Avg. Trade Duration'] = stats['Avg. Trade Duration']
+                esp_heatmap['Win Rate [%]'] = stats['Win Rate [%]']
+                esp_heatmap['Max. Drawdown Duration'] = stats['Max. Drawdown Duration']
+                esp_heatmap['skopt_func_result'] = -res.func_vals # keine Ahnung
+                esp_heatmap['skopt_func_name'] = maximize_key
+
+
+
                 output.append(heatmap)
-                output.append(heatmap_esp)
 
             if return_optimization:
                 valid = res.func_vals != INVALID
@@ -1640,12 +1616,13 @@ class Backtest:
                                     result['Avg. Trade Duration'],
                                     result['Win Rate [%]'],
                                     result['Max. Drawdown Duration'],
-                                    result['Start'],
-                                    result['End']
                                  ))
 
-        return batch_index, [result['SQN']], esp_results
 
+        return batch_index, [result['SQN']], esp_results
+        return batch_index, [(maximize_func(stats) if stats['# Trades'] else np.nan , stats['# Trades']  )
+                             for stats in (bt.run(**params)
+                                           for params in param_batches[batch_index])]
 
     _mp_backtests: Dict[float, Tuple['Backtest', List, Callable]] = {}
 
