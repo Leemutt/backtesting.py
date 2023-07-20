@@ -1561,7 +1561,7 @@ class Backtest:
                 esp_heatmap['Avg. Trade Duration'] = res['Avg. Trade Duration']
                 esp_heatmap['Win Rate [%]'] = res['Win Rate [%]']
                 esp_heatmap['Max. Drawdown Duration'] = res['Max. Drawdown Duration']
-                esp_heatmap['skopt_func_result'] = value 
+                esp_heatmap['skopt_func_result'] = round(-value,2)
                 esp_heatmap['skopt_func_name'] = '' # keine Ahnung
 
                 try:
