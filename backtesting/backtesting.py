@@ -1442,7 +1442,7 @@ class Backtest:
 
                                 duration = result_for_df['End'] - result_for_df['Start']
                                 try:
-                                    max_drawdown_pct = result_for_df['Max. Drawdown Duration'] * 100 / duration
+                                    max_drawdown_pct = result_for_df['Max. Drawdown Duration'].days * 100 / duration.days
                                 except:
                                     max_drawdown_pct = 0
 
@@ -1472,7 +1472,7 @@ class Backtest:
                             result_for_df['skopt_func_name']        = ''
                             duration = result_for_df['End'] - result_for_df['Start']
                             try:
-                                max_drawdown_pct = result_for_df['Max. Drawdown Duration'] * 100 / duration
+                                max_drawdown_pct = result_for_df['Max. Drawdown Duration'].days * 100 / duration.days
                             except:
                                 max_drawdown_pct = 0
 
@@ -1565,7 +1565,7 @@ class Backtest:
                 esp_heatmap['skopt_func_name'] = '' # keine Ahnung
 
                 try:
-                    max_drawdown_pct = res['Max. Drawdown Duration'] * 100 / res['Duration']
+                    max_drawdown_pct = res['Max. Drawdown Duration'].days * 100 / res['Duration'].days
                 except:
                     max_drawdown_pct = 0
 
