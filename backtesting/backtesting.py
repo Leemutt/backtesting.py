@@ -200,7 +200,8 @@ class Strategy(metaclass=ABCMeta):
             stop: Optional[float] = None,
             sl: Optional[float] = None,
             tp: Optional[float] = None,
-            tag: object = None):
+            tag: object = None,
+            ticker: str = None ):
         """
         Place a new long order. For explanation of parameters, see `Order` and its properties.
 
@@ -210,7 +211,24 @@ class Strategy(metaclass=ABCMeta):
         """
         assert 0 < size < 1 or round(size) == size, \
             "size must be a positive fraction of equity, or a positive whole number of units"
-        return self._broker.new_order(size, limit, stop, sl, tp, tag)
+
+        try:
+            epoch = self.data.index[-1].timestamp()
+        except:
+            epoch = self.data.index[-1]
+
+        order =  self._broker.new_order(size    =   size,
+                                        limit   =   limit,
+                                        stop    =   stop,
+                                        sl      =   sl,
+                                        tp      =   tp,
+                                        tag     =   tag,
+                                        ticker  =   ticker,
+                                        epoch_bar=  epoch )
+        
+        self._broker.new_mt5_signal(order)
+
+        return order
 
     def sell(self, *,
              size: float = _FULL_EQUITY,
@@ -218,7 +236,8 @@ class Strategy(metaclass=ABCMeta):
              stop: Optional[float] = None,
              sl: Optional[float] = None,
              tp: Optional[float] = None,
-             tag: object = None):
+             tag: object = None,
+             ticker: str = None ):
         """
         Place a new short order. For explanation of parameters, see `Order` and its properties.
 
@@ -230,7 +249,24 @@ class Strategy(metaclass=ABCMeta):
         """
         assert 0 < size < 1 or round(size) == size, \
             "size must be a positive fraction of equity, or a positive whole number of units"
-        return self._broker.new_order(-size, limit, stop, sl, tp, tag)
+        
+        try:
+            epoch = self.data.index[-1].timestamp()
+        except:
+            epoch = self.data.index[-1]
+
+        order =  self._broker.new_order(  size    =   -size,
+                                          limit   =   limit,
+                                          stop    =   stop,
+                                          sl      =   sl,
+                                          tp      =   tp,
+                                          tag     =   tag,
+                                          ticker  =   ticker,
+                                          epoch_bar=  epoch )
+
+        self._broker.new_mt5_signal(order)
+
+        return order
 
     @property
     def equity(self) -> float:
@@ -389,7 +425,9 @@ class Order:
                  sl_price: Optional[float] = None,
                  tp_price: Optional[float] = None,
                  parent_trade: Optional['Trade'] = None,
-                 tag: object = None):
+                 tag: object = None,
+                 ticker: str = None,
+                 epoch_bar: int = None):
         self.__broker = broker
         assert size != 0
         self.__size = size
@@ -399,6 +437,8 @@ class Order:
         self.__tp_price = tp_price
         self.__parent_trade = parent_trade
         self.__tag = tag
+        self.__ticker = ticker
+        self.__epoch_bar = epoch_bar
 
     def _replace(self, **kwargs):
         for k, v in kwargs.items():
@@ -415,6 +455,8 @@ class Order:
                                                  ('tp', self.__tp_price),
                                                  ('contingent', self.is_contingent),
                                                  ('tag', self.__tag),
+                                                 ('ticker', self.__ticker),
+                                                 ('epoch_bar', self.__epoch_bar),
                                              ) if value is not None))
 
     def cancel(self):
@@ -453,6 +495,20 @@ class Order:
         [market orders]: https://www.investopedia.com/terms/m/marketorder.asp
         """
         return self.__limit_price
+
+    @property
+    def ticker(self) -> Optional[str]:
+        """
+        Ticker for the order (MT5 name)
+        """
+        return self.__ticker
+
+    @property
+    def epoch_bar(self) -> Optional[int]:
+        """
+        Epoch time for bar when order was produced
+        """
+        return self.__epoch_bar
 
     @property
     def stop(self) -> Optional[float]:
@@ -528,7 +584,7 @@ class Trade:
     When an `Order` is filled, it results in an active `Trade`.
     Find active trades in `Strategy.trades` and closed, settled trades in `Strategy.closed_trades`.
     """
-    def __init__(self, broker: '_Broker', size: int, entry_price: float, entry_bar, tag):
+    def __init__(self, broker: '_Broker', size: int, entry_price: float, entry_bar, tag, ticker, epoch_bar):
         self.__broker = broker
         self.__size = size
         self.__entry_price = entry_price
@@ -538,6 +594,8 @@ class Trade:
         self.__sl_order: Optional[Order] = None
         self.__tp_order: Optional[Order] = None
         self.__tag = tag
+        self.__ticker = ticker
+        self.__epoch_bar = epoch_bar
 
     def __repr__(self):
         return f'<Trade size={self.__size} time={self.__entry_bar}-{self.__exit_bar or ""} ' \
@@ -556,8 +614,15 @@ class Trade:
         """Place new `Order` to close `portion` of the trade at next market price."""
         assert 0 < portion <= 1, "portion must be a fraction between 0 and 1"
         size = copysign(max(1, round(abs(self.__size) * portion)), -self.__size)
-        order = Order(self.__broker, size, parent_trade=self, tag=self.__tag)
+
+        try:
+            epoch = self.__broker._data.index[-1].timestamp()
+        except:
+            epoch = self.__broker._data.index[-1]
+
+        order = Order(self.__broker, size, parent_trade=self, tag=self.__tag, ticker=self.__ticker, epoch_bar=epoch)
         self.__broker.orders.insert(0, order)
+        self.__broker.new_mt5_signal(order)
 
     # Fields getters
 
@@ -601,6 +666,13 @@ class Trade:
         See also `Order.tag`.
         """
         return self.__tag
+
+    @property
+    def ticker(self):
+        """
+        Ticker
+        """
+        return self.__ticker
 
     @property
     def _sl_order(self):
@@ -719,6 +791,59 @@ class _Broker:
         self.position = Position(self)
         self.closed_trades: List[Trade] = []
 
+        self.signals : List[dict] = []
+
+    def new_mt5_signal(self, order : Order):
+        if isinstance(order.parent_trade, Trade):
+            close_open_positions = True
+        else:
+            close_open_positions = False
+
+        if close_open_positions:
+            """
+            When closing existing positions, we need to do the opposite.
+             -> if we want to close a position with -10 (it was a sell position), we need to buy 10.
+             -> In addition, the position ID is mandatory to close existing positions. However, it is
+                impossible to know the position ID from MT5 here
+            """
+            if order.size < 0:
+                order_type = 0      # ORDER_TYPE_BUY
+            elif order.size > 0:
+                order_type = 1      # ORDER_TYPE_SELL
+        else:
+            if order.size < 0:
+                order_type = 1      # ORDER_TYPE_SELL
+            elif order.size > 0:
+                order_type = 0      # ORDER_TYPE_BUY
+
+        signal = {
+            'action'         : 1,           # TRADE_ACTION_DEAL
+            'magic'          : order.tag,   # Must be integer
+            'symbol'         : order.ticker,
+            'volume'         : abs(order.size) / 100,
+            'tp'             : order.tp,
+            'sl'             : order.sl,
+            'type'           : order_type,
+            'type_time'      : 2,           # ORDER_TIME_SPECIFIED
+            'type_filling'   : 0,           # ORDER_FILLING_FOK   
+            'expiration'     : 0,           # ORDER_TIME_GTC
+            'comment'        : '',
+            'epoch_bar'      : order.epoch_bar,
+            'close_open_pos' : close_open_positions,
+            'price_signal'   : self._data.Close[-1],
+            }
+    
+        if close_open_positions:
+            signal['position'] = '???'
+
+        self.signals.append(signal)
+    
+    def get_mt5_signals(self) -> List[dict]:
+        to_be_returned = self.signals
+        self.signals = []
+        return to_be_returned
+
+
     def __repr__(self):
         return f'<Broker: {self._cash:.0f}{self.position.pl:+.1f} ({len(self.trades)} trades)>'
 
@@ -730,7 +855,9 @@ class _Broker:
                   tp: Optional[float] = None,
                   tag: object = None,
                   *,
-                  trade: Optional[Trade] = None):
+                  trade: Optional[Trade] = None,
+                  ticker: str = None,
+                  epoch_bar : int = None ):
         """
         Argument size indicates whether the order is long or short
         """
@@ -754,7 +881,7 @@ class _Broker:
                     "Short orders require: "
                     f"TP ({tp}) < LIMIT ({limit or stop or adjusted_price}) < SL ({sl})")
 
-        order = Order(self, size, limit, stop, sl, tp, trade, tag)
+        order = Order(self, size, limit, stop, sl, tp, trade, tag, ticker, epoch_bar)
         # Put the new order in the order queue,
         # inserting SL/TP/trade-closing orders in-front
         if trade:
@@ -939,7 +1066,9 @@ class _Broker:
                                  order.sl,
                                  order.tp,
                                  time_index,
-                                 order.tag)
+                                 order.tag,
+                                 order.ticker,
+                                 order.epoch_bar)
 
                 # We need to reprocess the SL/TP orders newly added to the queue.
                 # This allows e.g. SL hitting in the same bar the order was open.
@@ -998,8 +1127,8 @@ class _Broker:
         self._cash += trade.pl
 
     def _open_trade(self, price: float, size: int,
-                    sl: Optional[float], tp: Optional[float], time_index: int, tag):
-        trade = Trade(self, size, price, time_index, tag)
+                    sl: Optional[float], tp: Optional[float], time_index: int, tag, ticker, epoch_bar):
+        trade = Trade(self, size, price, time_index, tag, ticker, epoch_bar)
         self.trades.append(trade)
         # Create SL/TP (bracket) orders.
         # Make sure SL order is created first so it gets adversarially processed before TP order
@@ -1186,7 +1315,7 @@ class Backtest:
         data = _Data(self._data.copy(deep=False))
         broker: _Broker = self._broker(data=data)
         strategy: Strategy = self._strategy(broker, data, kwargs)
-
+        
         strategy.init()
         data._update()  # Strategy.init might have changed/added to data.df
 
@@ -1242,6 +1371,8 @@ class Backtest:
                 risk_free_rate=0.0,
                 strategy_instance=strategy,
             )
+
+        self.mt5_signals = broker.get_mt5_signals()
 
         return self._results
 
@@ -1759,3 +1890,6 @@ class Backtest:
             reverse_indicators=reverse_indicators,
             show_legend=show_legend,
             open_browser=open_browser)
+    
+    def get_mt5_signals(self) -> List[dict]:
+        return self.mt5_signals
